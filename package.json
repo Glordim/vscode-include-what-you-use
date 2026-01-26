@@ -1,0 +1,96 @@
+{
+  "name": "include-what-you-use-iwyu",
+  "displayName": "Include What You Use (IWYU)",
+  "description": "A seamless VS Code interface for IWYU. Analyze C/C++ dependencies to remove unused headers and ensure cleaner, faster compilations.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.108.1"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "include-what-you-use-iwyu.dry_run",
+        "title": "Include What You Use: Dry Run"
+      },
+      {
+        "command": "include-what-you-use-iwyu.fix",
+        "title": "Include What You Use: Fix Includes"
+      }
+    ],
+    "configuration": {
+      "title": "Include What You Use",
+      "properties": {
+        "iwyu.executablePath": {
+          "type": "string",
+          "default": "include-what-you-use",
+          "description": "Path to the include-what-you-use executable. If it's in your PATH, the default value is fine.",
+          "scope": "machine-overridable",
+          "format": "path"
+        },
+        "iwyu.fixIncludesPath": {
+          "type": "string",
+          "default": "fix_includes.py",
+          "description": "Path to the fix_includes python script.",
+          "scope": "machine-overridable",
+          "format": "path"
+        },
+        "iwyu.mappingFiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "List of IWYU mapping files (.imp)",
+          "scope": "machine-overridable"
+        },
+        "iwyu.additionalArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional arguments to pass to IWYU (e.g., --verbose=3)"
+        },
+        "iwyu.fixIncludesAdditionalArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional arguments to pass to fix_includes.py (e.g., --nosafe_headers)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.108.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "typescript-eslint": "^8.52.0",
+    "eslint": "^9.39.2",
+    "esbuild": "^0.27.2",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2"
+  }
+}
