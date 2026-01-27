@@ -151,7 +151,9 @@ export class CompilationDatabase {
 	}
 
 	private initWatcher(folder: vscode.WorkspaceFolder) {
-		const dbUri = vscode.Uri.joinPath(folder.uri, 'build', 'compile_commands.json');
+		const config = vscode.workspace.getConfiguration('iwyu');
+		const compileCommandsPath = config.get<string>('compileCommandsPath') || "";
+		const dbUri = vscode.Uri.joinPath(folder.uri, compileCommandsPath, 'compile_commands.json');
 		this.watcher = vscode.workspace.createFileSystemWatcher(dbUri.fsPath);
 
 		const reload = () => {

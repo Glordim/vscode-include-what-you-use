@@ -25,6 +25,12 @@
     "configuration": {
       "title": "Include What You Use",
       "properties": {
+        "iwyu.compileCommandsPath": {
+          "type": "string",
+          "default": "build",
+          "description": "Path to the compile_commands.json.",
+          "format": "path"
+        },
         "iwyu.executablePath": {
           "type": "string",
           "default": "include-what-you-use",
