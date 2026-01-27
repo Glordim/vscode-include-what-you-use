@@ -44,13 +44,13 @@ function splitArguments(cmd: string): string[] {
  */
 function getIwyuPath(): string {
 	const config = vscode.workspace.getConfiguration('iwyu');
-	const exe = config.get<string>('executablePath') || 'include-what-you-use';
+	const exe = config.get<string>('iwyu.path') || 'include-what-you-use';
 	return exe.replace(/^"|"$/g, '');
 }
 
 function getFixIncludesPath(): string {
 	const config = vscode.workspace.getConfiguration('iwyu');
-	return config.get<string>('fixIncludesPath') || 'fix_includes.py';
+	return config.get<string>('fixIncludes.path') || 'fix_includes.py';
 }
 
 /**
@@ -58,8 +58,8 @@ function getFixIncludesPath(): string {
  */
 function prepareIwyuArgs(compileCmd: string, workspaceFolder: vscode.WorkspaceFolder): string[] {
 	const config = vscode.workspace.getConfiguration('iwyu');
-	const mappingFiles = config.get<string[]>('mappingFiles') || [];
-	const additionalArgs = config.get<string[]>('additionalArgs') || [];
+	const mappingFiles = config.get<string[]>('iwyu.mappingFiles') || [];
+	const additionalArgs = config.get<string[]>('iwyu.additionalArgs') || [];
 
 	const iwyuFlags: string[] = [];
 	const clangFlags: string[] = [];
@@ -152,7 +152,7 @@ export class CompilationDatabase {
 
 	private initWatcher(folder: vscode.WorkspaceFolder) {
 		const config = vscode.workspace.getConfiguration('iwyu');
-		const compileCommandsPath = config.get<string>('compileCommandsPath') || "";
+		const compileCommandsPath = config.get<string>('compileCommands.path') || "";
 		const dbUri = vscode.Uri.joinPath(folder.uri, compileCommandsPath, 'compile_commands.json');
 		this.watcher = vscode.workspace.createFileSystemWatcher(dbUri.fsPath);
 
@@ -309,7 +309,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 			const config = vscode.workspace.getConfiguration('iwyu');
-			const additionalArgs = config.get<string[]>('fixIncludesAdditionalArgs') || [];
+			const additionalArgs = config.get<string[]>('fixIncludes.additionalArgs') || [];
 
 			// 2. Préparer fix_includes.py
 			const pythonArgs = [

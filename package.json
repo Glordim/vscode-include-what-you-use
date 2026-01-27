@@ -25,27 +25,20 @@
     "configuration": {
       "title": "Include What You Use",
       "properties": {
-        "iwyu.compileCommandsPath": {
+        "iwyu.compileCommands.path": {
           "type": "string",
           "default": "build",
           "description": "Path to the compile_commands.json.",
           "format": "path"
         },
-        "iwyu.executablePath": {
+        "iwyu.iwyu.path": {
           "type": "string",
           "default": "include-what-you-use",
           "description": "Path to the include-what-you-use executable. If it's in your PATH, the default value is fine.",
           "scope": "machine-overridable",
           "format": "path"
         },
-        "iwyu.fixIncludesPath": {
-          "type": "string",
-          "default": "fix_includes.py",
-          "description": "Path to the fix_includes python script.",
-          "scope": "machine-overridable",
-          "format": "path"
-        },
-        "iwyu.mappingFiles": {
+        "iwyu.iwyu.mappingFiles": {
           "type": "array",
           "items": {
             "type": "string"
@@ -54,7 +47,7 @@
           "description": "List of IWYU mapping files (.imp)",
           "scope": "machine-overridable"
         },
-        "iwyu.additionalArgs": {
+        "iwyu.iwyu.additionalArgs": {
           "type": "array",
           "items": {
             "type": "string"
@@ -62,7 +55,14 @@
           "default": [],
           "description": "Additional arguments to pass to IWYU (e.g., --verbose=3)"
         },
-        "iwyu.fixIncludesAdditionalArgs": {
+        "iwyu.fixIncludes.path": {
+          "type": "string",
+          "default": "fix_includes.py",
+          "description": "Path to the fix_includes python script.",
+          "scope": "machine-overridable",
+          "format": "path"
+        },
+        "iwyu.fixIncludes.additionalArgs": {
           "type": "array",
           "items": {
             "type": "string"
