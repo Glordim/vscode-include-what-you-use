@@ -148,10 +148,19 @@ export class CompilationDatabase {
 		if (folder) {
 			this.initWatcher(folder);
 			this.loadingPromise = this.loadDatabase(folder);
+			vscode.workspace.onDidChangeConfiguration(e => {
+                if (e.affectsConfiguration('iwyu.compileCommands.path')) {
+                    this.outputChannel.appendLine("IWYU: Settings changed, reloading database...");
+                    
+                    this.initWatcher(folder); 
+                    this.loadingPromise = this.loadDatabase(folder);
+                }
+            });
 		}
 	}
 
 	private initWatcher(folder: vscode.WorkspaceFolder) {
+		this.watcher?.dispose();
 		const config = vscode.workspace.getConfiguration('iwyu');
 		const compileCommandsPath = config.get<string>('compileCommands.path') || "";
 		const dbUri = vscode.Uri.joinPath(folder.uri, compileCommandsPath, 'compile_commands.json');
