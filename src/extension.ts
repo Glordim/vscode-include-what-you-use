@@ -184,7 +184,9 @@ export class CompilationDatabase {
 	}
 
 	private async loadDatabase(folder: vscode.WorkspaceFolder) {
-		const dbUri = vscode.Uri.joinPath(folder.uri, 'build', 'compile_commands.json');
+		const config = vscode.workspace.getConfiguration('iwyu');
+		const compileCommandsPath = config.get<string>('compileCommands.path') || "";
+		const dbUri = vscode.Uri.joinPath(folder.uri, compileCommandsPath, 'compile_commands.json');
 		if (!fs.existsSync(dbUri.fsPath)) {
 			this.outputChannel.appendLine(`IWYU: Database not found at ${dbUri.fsPath}`);
 			return;
