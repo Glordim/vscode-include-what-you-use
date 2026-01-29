@@ -140,6 +140,7 @@ export class CompilationDatabase {
 	private watcher?: vscode.FileSystemWatcher;
 	private outputChannel: vscode.OutputChannel;
 	private loadingPromise?: Promise<void>;
+	private dbExists: boolean = false;
 
 	constructor(outputChannel: vscode.OutputChannel) {
 		this.outputChannel = outputChannel;
@@ -175,12 +176,21 @@ export class CompilationDatabase {
 		return this.commands.get(fileUri.toString());
 	}
 
+	public async isValid(): Promise<boolean> {
+        if (this.loadingPromise) {
+            await this.loadingPromise;
+        }
+        return this.dbExists && this.commands.size > 0;
+	}
+
 	private async loadDatabase(folder: vscode.WorkspaceFolder) {
 		const dbUri = vscode.Uri.joinPath(folder.uri, 'build', 'compile_commands.json');
 		if (!fs.existsSync(dbUri.fsPath)) {
 			this.outputChannel.appendLine(`IWYU: Database not found at ${dbUri.fsPath}`);
 			return;
 		}
+
+		this.dbExists = true;
 
 		try {
 			const content = await fs.promises.readFile(dbUri.fsPath, 'utf8');
@@ -228,6 +238,14 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 
+		if (!(await db.isValid())) {
+			outputChannel.appendLine("IWYU: Compilation database is invalid or not found.");
+			vscode.window.showErrorMessage(
+				"IWYU: compile_commands.json not found or invalid. Please ensure your project is configured (e.g., run CMake)."
+			);
+			return;
+		}
+
 		const entry = await db.getEntryForFile(editor.document.uri);
 		if (!entry) {
 			outputChannel.appendLine(`IWYU: No entry found for ${editor.document.uri.fsPath}`);
@@ -269,8 +287,25 @@ export function activate(context: vscode.ExtensionContext) {
 		if (!editor) return;
 
 		const currentFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+		if (!currentFolder) {
+			vscode.window.showErrorMessage("File is not in a workspace folder.");
+			return;
+		}
+
+		if (!(await db.isValid())) {
+			outputChannel.appendLine("IWYU: Compilation database is invalid or not found.");
+			vscode.window.showErrorMessage(
+				"IWYU: compile_commands.json not found or invalid. Please ensure your project is configured (e.g., run CMake)."
+			);
+			return;
+		}
+
 		const entry = await db.getEntryForFile(editor.document.uri);
-		if (!entry || !currentFolder) return;
+		if (!entry) {
+			outputChannel.appendLine(`IWYU: No entry found for ${editor.document.uri.fsPath}`);
+			vscode.window.showWarningMessage("No compile command found for this file.");
+			return;
+		}
 
 		const iwyuExe = getIwyuPath();
 		const iwyuArgs = prepareIwyuArgs(entry.command, currentFolder);
