@@ -258,9 +258,19 @@ export function activate(context: vscode.ExtensionContext) {
 			outputChannel.appendLine(`[CWD] ${entry.directory}`);
 			outputChannel.appendLine(`[Command] ${pythonArgs.join(' ')}`);
 
+			// Strip PYTHONHOME/PYTHONPATH: another extension (e.g. the Python
+			// extension activating an interpreter) may have set these on the
+			// extension host process. Left inherited, they can point Python's
+			// stdlib lookup at a different install than the one that actually
+			// gets launched, causing an SRE module MAGIC mismatch on import re.
+			const fixEnv = { ...process.env };
+			delete fixEnv.PYTHONHOME;
+			delete fixEnv.PYTHONPATH;
+
 			const fixProcess = spawn('python', pythonArgs, {
 				cwd: entry.directory,
-				shell: true
+				shell: true,
+				env: fixEnv
 			});
 
 			// Envoyer le rapport IWYU au script Python via STDIN
