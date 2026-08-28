@@ -3,6 +3,7 @@
   "displayName": "Include What You Use (IWYU)",
   "description": "A seamless VS Code interface for IWYU. Analyze C/C++ dependencies to remove unused headers and ensure cleaner, faster compilations.",
   "version": "0.0.1",
+  "publisher": "AnthonyTuffraudGlordim",
   "engines": {
     "vscode": "^1.108.1"
   },

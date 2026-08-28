@@ -1,0 +1,74 @@
+name: Publish Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_notes: ${{ steps.extract_changelog.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+
+      - run: npm install
+
+      - name: Extract Release Notes
+        id: extract_changelog
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          sed -n "/## \[$VERSION\]/,/## /p" CHANGELOG.md | sed '1d;$d' > release_notes.md
+          {
+            echo "notes<<EOF"
+            cat release_notes.md
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Package Extension
+        run: npx vsce package -o extension.vsix
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: extension.vsix
+          body: ${{ steps.extract_changelog.outputs.notes }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: extension-artifact
+          path: extension.vsix
+
+  publish-vs-marketplace:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: extension-artifact
+      - name: Publish to VS Marketplace
+        run: npx vsce publish --packagePath extension.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+  publish-open-vsx:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: extension-artifact
+      - name: Publish to Open VSX
+        run: npx ovsx publish extension.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
