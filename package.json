@@ -21,8 +21,30 @@
       {
         "command": "include-what-you-use-iwyu.fix",
         "title": "Include What You Use: Fix Includes"
+      },
+      {
+        "command": "include-what-you-use-iwyu.dry_run_folder",
+        "title": "Include What You Use: Dry Run (Folder)"
+      },
+      {
+        "command": "include-what-you-use-iwyu.fix_folder",
+        "title": "Include What You Use: Fix Includes (Folder)"
       }
     ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "include-what-you-use-iwyu.dry_run_folder",
+          "when": "explorerResourceIsFolder",
+          "group": "7_modification"
+        },
+        {
+          "command": "include-what-you-use-iwyu.fix_folder",
+          "when": "explorerResourceIsFolder",
+          "group": "7_modification"
+        }
+      ]
+    },
     "configuration": {
       "title": "Include What You Use",
       "properties": {
