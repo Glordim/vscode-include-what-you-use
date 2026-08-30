@@ -70,6 +70,11 @@
           },
           "default": [],
           "description": "Additional arguments to pass to fix_includes.py (e.g., --nosafe_headers)"
+        },
+        "iwyu.dryRun.openInNewFile": {
+          "type": "boolean",
+          "default": false,
+          "description": "When running Dry Run, also open the result in a new untitled text file/tab in addition to the output console."
         }
       }
     }

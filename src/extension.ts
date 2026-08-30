@@ -175,16 +175,34 @@ export function activate(context: vscode.ExtensionContext) {
 			shell: false
 		});
 
-		process.stdout.on('data', (data) => outputChannel.append(data.toString()));
-		process.stderr.on('data', (data) => outputChannel.append(data.toString()));
+		const config = vscode.workspace.getConfiguration('iwyu');
+		const openInNewFile = config.get<boolean>('dryRun.openInNewFile') || false;
+		let report = `[Running IWYU] ${editor.document.uri.fsPath}\n[CWD] ${entry.directory}\n[Command] ${iwyuExe} ${iwyuArgs.join(' ')}\n`;
+
+		process.stdout.on('data', (data) => {
+			const chunk = data.toString();
+			report += chunk;
+			outputChannel.append(chunk);
+		});
+		process.stderr.on('data', (data) => {
+			const chunk = data.toString();
+			report += chunk;
+			outputChannel.append(chunk);
+		});
 
 		process.on('error', (err) => {
 			outputChannel.appendLine(`[Error] ${err.message}`);
 			vscode.window.showErrorMessage(`IWYU failed to start: ${err.message}`);
 		});
 
-		process.on('close', (code) => {
+		process.on('close', async (code) => {
+			report += `\n[Finished] Exit code: ${code}`;
 			outputChannel.appendLine(`\n[Finished] Exit code: ${code}`);
+
+			if (openInNewFile) {
+				const doc = await vscode.workspace.openTextDocument({ content: report, language: 'plaintext' });
+				await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+			}
 		});
 	});
 
