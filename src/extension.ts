@@ -4,6 +4,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { CompilationDatabase, CompileEntry } from './compilationDatabase';
 import { pickFolderIntegrated } from './ui';
+import { parseFixIncludesDryRun } from './diff';
+import { ProposalController } from './proposals';
 
 // --- Utils ---
 
@@ -17,6 +19,15 @@ function getEntryCommand(entry: CompileEntry): string {
 
 function getEntryFilePath(entry: CompileEntry): string {
 	return path.isAbsolute(entry.file) ? entry.file : path.resolve(entry.directory, entry.file);
+}
+
+/**
+ * Normalizes a path for comparison against IWYU's reported filenames, which
+ * use forward slashes regardless of platform. Case-insensitive, matching
+ * Windows' (and this extension's other) filesystem assumptions.
+ */
+function normalizePathForCompare(p: string): string {
+	return p.replace(/\\/g, '/').toLowerCase();
 }
 
 /**
@@ -196,8 +207,9 @@ async function runIwyuFixOnEntry(
 	entry: CompileEntry,
 	workspaceFolder: vscode.WorkspaceFolder,
 	outputChannel: vscode.OutputChannel,
-	live: boolean
-): Promise<{ status: FixStatus, log: string }> {
+	live: boolean,
+	dryRun: boolean = false
+): Promise<{ status: FixStatus, log: string, fixStdout: string }> {
 	const iwyuExe = getIwyuPath();
 	const iwyuArgs = prepareIwyuArgs(getEntryCommand(entry), workspaceFolder);
 	const fixIncludesPy = getFixIncludesPath();
@@ -240,7 +252,7 @@ async function runIwyuFixOnEntry(
 	if (iwyuReport.trim().length === 0) {
 		log += `\n[Error] IWYU returned no suggestions to process.`;
 		if (live) outputChannel.appendLine(`[Error] IWYU returned no suggestions to process.`);
-		return { status: 'no-suggestions', log };
+		return { status: 'no-suggestions', log, fixStdout: '' };
 	}
 
 	const config = vscode.workspace.getConfiguration('iwyu');
@@ -251,6 +263,9 @@ async function runIwyuFixOnEntry(
 		fixIncludesPy,
 		...additionalArgs
 	];
+	if (dryRun) {
+		pythonArgs.push('--dry_run');
+	}
 
 	if (live) {
 		outputChannel.appendLine(`[Running Fix Script]`);
@@ -267,6 +282,8 @@ async function runIwyuFixOnEntry(
 	delete fixEnv.PYTHONHOME;
 	delete fixEnv.PYTHONPATH;
 
+	let fixStdout = '';
+
 	const fixCode = await new Promise<number>((resolve) => {
 		const fixProcess = spawn('python', pythonArgs, {
 			cwd: entry.directory,
@@ -279,7 +296,9 @@ async function runIwyuFixOnEntry(
 		fixProcess.stdin.end();
 
 		fixProcess.stdout.on('data', (data) => {
-			const chunk = `[fix_includes.py] ${data.toString()}`;
+			const raw = data.toString();
+			fixStdout += raw;
+			const chunk = `[fix_includes.py] ${raw}`;
 			log += chunk;
 			if (live) outputChannel.append(chunk);
 		});
@@ -301,7 +320,14 @@ async function runIwyuFixOnEntry(
 	log += `\n[Finished] Fix script exited with code: ${fixCode}`;
 	if (live) outputChannel.appendLine(`\n[Finished] Fix script exited with code: ${fixCode}`);
 
-	return { status: fixCode === 0 ? 'success' : 'failed', log };
+	// In --dry_run mode, fix_includes.py's exit code is not a success/failure
+	// flag: it's min(files_with_changes, 100) (see fix_includes.py's main()).
+	// A spawn error is still reported as -1 by the promise above.
+	const status: FixStatus = dryRun
+		? (fixCode === -1 ? 'failed' : 'success')
+		: (fixCode === 0 ? 'success' : 'failed');
+
+	return { status, log, fixStdout };
 }
 
 // --- Folder batch runner ---
@@ -360,6 +386,8 @@ async function runBatch(
 export function activate(context: vscode.ExtensionContext) {
 	const outputChannel = vscode.window.createOutputChannel("Include What You Use");
 	const db = new CompilationDatabase(outputChannel);
+	const proposalController = new ProposalController();
+	proposalController.register(context);
 
 	context.subscriptions.push(outputChannel, db);
 
@@ -431,6 +459,88 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	context.subscriptions.push(disposableFix);
+
+	let disposableFixPreview = vscode.commands.registerCommand('include-what-you-use-iwyu.fix_preview', async () => {
+		const editor = vscode.window.activeTextEditor;
+		if (!editor) return;
+
+		if (editor.document.isDirty) {
+			vscode.window.showWarningMessage("IWYU: Please save the file before running Fix Includes (Preview) — IWYU only analyzes the saved content.");
+			return;
+		}
+
+		const currentFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+		if (!currentFolder) {
+			vscode.window.showErrorMessage("File is not in a workspace folder.");
+			return;
+		}
+
+		const entry = await db.getEntryForFile(editor.document.uri);
+		if (!entry) {
+			outputChannel.appendLine(`IWYU: No entry found for ${editor.document.uri.fsPath}`);
+			vscode.window.showWarningMessage(
+				"IWYU: No compile command found for this file. Please ensure your project is configured (e.g., run CMake) and compile_commands.json is up to date."
+			);
+			return;
+		}
+
+		outputChannel.clear();
+		outputChannel.show(true);
+
+		const result = await runIwyuFixOnEntry(entry, currentFolder, outputChannel, true, true);
+
+		if (result.status === 'no-suggestions') {
+			vscode.window.showInformationMessage("IWYU: No suggestions to review.");
+			return;
+		}
+		if (result.status === 'failed') {
+			vscode.window.showErrorMessage(`fix_includes.py failed. Check the Output channel.`);
+			return;
+		}
+
+		const fileDiffs = parseFixIncludesDryRun(result.fixStdout);
+		if (fileDiffs.length === 0) {
+			vscode.window.showInformationMessage("IWYU: No suggestions to review.");
+			return;
+		}
+
+		// IWYU commonly reports changes for more than just the active file
+		// (e.g. its associated header). Apply the active file's diff to the
+		// open editor, and open any other affected files to preview theirs.
+		const targetPath = normalizePathForCompare(getEntryFilePath(entry));
+		let totalHunks = 0;
+
+		for (const fileDiff of fileDiffs) {
+			let targetEditor: vscode.TextEditor;
+
+			if (normalizePathForCompare(fileDiff.filename) === targetPath) {
+				targetEditor = editor;
+			} else {
+				let doc: vscode.TextDocument;
+				try {
+					doc = await vscode.workspace.openTextDocument(vscode.Uri.file(fileDiff.filename));
+				} catch (err) {
+					outputChannel.appendLine(`IWYU: Could not open ${fileDiff.filename} to preview suggestions: ${err}`);
+					continue;
+				}
+				if (doc.isDirty) {
+					vscode.window.showWarningMessage(`IWYU: Skipped suggestions for ${path.basename(fileDiff.filename)} — it has unsaved changes.`);
+					continue;
+				}
+				targetEditor = await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+			}
+
+			totalHunks += await proposalController.applyProposals(targetEditor, fileDiff);
+		}
+
+		if (totalHunks === 0) {
+			vscode.window.showInformationMessage("IWYU: No suggestions to review.");
+		} else {
+			vscode.window.showInformationMessage(`IWYU: ${totalHunks} suggestion(s) ready for review across ${fileDiffs.length} file(s). Use the Accept/Reject CodeLens above each change.`);
+		}
+	});
+
+	context.subscriptions.push(disposableFixPreview);
 
 	let disposableDryRunFolder = vscode.commands.registerCommand('include-what-you-use-iwyu.dry_run_folder', async (uri?: vscode.Uri) => {
 		const targetUri = uri ?? await pickFolderIntegrated();

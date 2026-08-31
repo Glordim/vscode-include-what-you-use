@@ -23,6 +23,10 @@
         "title": "Include What You Use: Fix Includes"
       },
       {
+        "command": "include-what-you-use-iwyu.fix_preview",
+        "title": "Include What You Use: Fix Includes (Preview)"
+      },
+      {
         "command": "include-what-you-use-iwyu.dry_run_folder",
         "title": "Include What You Use: Dry Run (Folder)"
       },
