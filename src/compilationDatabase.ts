@@ -89,7 +89,9 @@ export class CompilationDatabase implements vscode.Disposable {
 	}
 
 	public getAllEntriesInFolder(folderUri: vscode.Uri): CompileEntry[] {
-		const folderPath = folderUri.fsPath.toLowerCase();
+		// Trailing separator so e.g. "C:\foo\bar" doesn't also match a
+		// sibling folder like "C:\foo\barbaz".
+		const folderPath = folderUri.fsPath.toLowerCase().replace(/[\\/]+$/, '') + path.sep;
 		const entries: CompileEntry[] = [];
 
 		for (const [uriStr, entry] of this.entries.entries()) {
