@@ -381,6 +381,42 @@ async function runBatch(
 	return !isCancelled;
 }
 
+/**
+ * Resolves the active editor's compile database entry and workspace folder,
+ * showing the appropriate error/warning message and returning undefined if
+ * any step fails. Shared by the single-file commands.
+ */
+async function resolveActiveEntry(
+	db: CompilationDatabase,
+	outputChannel: vscode.OutputChannel,
+	options?: { requireSaved?: boolean }
+): Promise<{ editor: vscode.TextEditor, entry: CompileEntry, workspaceFolder: vscode.WorkspaceFolder } | undefined> {
+	const editor = vscode.window.activeTextEditor;
+	if (!editor) return undefined;
+
+	if (options?.requireSaved && editor.document.isDirty) {
+		vscode.window.showWarningMessage("IWYU: Please save the file before running this command — IWYU only analyzes the saved content.");
+		return undefined;
+	}
+
+	const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+	if (!workspaceFolder) {
+		vscode.window.showErrorMessage("File is not in a workspace folder.");
+		return undefined;
+	}
+
+	const entry = await db.getEntryForFile(editor.document.uri);
+	if (!entry) {
+		outputChannel.appendLine(`IWYU: No entry found for ${editor.document.uri.fsPath}`);
+		vscode.window.showWarningMessage(
+			"IWYU: No compile command found for this file. Please ensure your project is configured (e.g., run CMake) and compile_commands.json is up to date."
+		);
+		return undefined;
+	}
+
+	return { editor, entry, workspaceFolder };
+}
+
 // --- Extension Activation ---
 
 export function activate(context: vscode.ExtensionContext) {
@@ -392,28 +428,14 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(outputChannel, db);
 
 	const disposable = vscode.commands.registerCommand('include-what-you-use-iwyu.dry_run', async () => {
-		const editor = vscode.window.activeTextEditor;
-		if (!editor) return;
-
-		const currentFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-		if (!currentFolder) {
-			vscode.window.showErrorMessage("File is not in a workspace folder.");
-			return;
-		}
-
-		const entry = await db.getEntryForFile(editor.document.uri);
-		if (!entry) {
-			outputChannel.appendLine(`IWYU: No entry found for ${editor.document.uri.fsPath}`);
-			vscode.window.showWarningMessage(
-				"IWYU: No compile command found for this file. Please ensure your project is configured (e.g., run CMake) and compile_commands.json is up to date."
-			);
-			return;
-		}
+		const resolved = await resolveActiveEntry(db, outputChannel);
+		if (!resolved) return;
+		const { entry, workspaceFolder } = resolved;
 
 		outputChannel.clear();
 		outputChannel.show(true);
 
-		const { report } = await runIwyuDryRunOnEntry(entry, currentFolder, outputChannel, true);
+		const { report } = await runIwyuDryRunOnEntry(entry, workspaceFolder, outputChannel, true);
 
 		const config = vscode.workspace.getConfiguration('iwyu');
 		const openInNewFile = config.get<boolean>('dryRun.openInNewFile') || false;
@@ -426,28 +448,14 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(disposable);
 
 	const disposableFix = vscode.commands.registerCommand('include-what-you-use-iwyu.fix', async () => {
-		const editor = vscode.window.activeTextEditor;
-		if (!editor) return;
-
-		const currentFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-		if (!currentFolder) {
-			vscode.window.showErrorMessage("File is not in a workspace folder.");
-			return;
-		}
-
-		const entry = await db.getEntryForFile(editor.document.uri);
-		if (!entry) {
-			outputChannel.appendLine(`IWYU: No entry found for ${editor.document.uri.fsPath}`);
-			vscode.window.showWarningMessage(
-				"IWYU: No compile command found for this file. Please ensure your project is configured (e.g., run CMake) and compile_commands.json is up to date."
-			);
-			return;
-		}
+		const resolved = await resolveActiveEntry(db, outputChannel);
+		if (!resolved) return;
+		const { entry, workspaceFolder } = resolved;
 
 		outputChannel.clear();
 		outputChannel.show(true);
 
-		const result = await runIwyuFixOnEntry(entry, currentFolder, outputChannel, true);
+		const result = await runIwyuFixOnEntry(entry, workspaceFolder, outputChannel, true);
 
 		if (result.status === 'success') {
 			vscode.window.showInformationMessage("IWYU: Fix applied! Reverting file to load changes...");
@@ -461,33 +469,14 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(disposableFix);
 
 	const disposableFixPreview = vscode.commands.registerCommand('include-what-you-use-iwyu.fix_preview', async () => {
-		const editor = vscode.window.activeTextEditor;
-		if (!editor) return;
-
-		if (editor.document.isDirty) {
-			vscode.window.showWarningMessage("IWYU: Please save the file before running Fix Includes (Preview) — IWYU only analyzes the saved content.");
-			return;
-		}
-
-		const currentFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-		if (!currentFolder) {
-			vscode.window.showErrorMessage("File is not in a workspace folder.");
-			return;
-		}
-
-		const entry = await db.getEntryForFile(editor.document.uri);
-		if (!entry) {
-			outputChannel.appendLine(`IWYU: No entry found for ${editor.document.uri.fsPath}`);
-			vscode.window.showWarningMessage(
-				"IWYU: No compile command found for this file. Please ensure your project is configured (e.g., run CMake) and compile_commands.json is up to date."
-			);
-			return;
-		}
+		const resolved = await resolveActiveEntry(db, outputChannel, { requireSaved: true });
+		if (!resolved) return;
+		const { editor, entry, workspaceFolder } = resolved;
 
 		outputChannel.clear();
 		outputChannel.show(true);
 
-		const result = await runIwyuFixOnEntry(entry, currentFolder, outputChannel, true, true);
+		const result = await runIwyuFixOnEntry(entry, workspaceFolder, outputChannel, true, true);
 
 		if (result.status === 'no-suggestions') {
 			vscode.window.showInformationMessage("IWYU: No suggestions to review.");
