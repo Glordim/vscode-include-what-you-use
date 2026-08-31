@@ -153,6 +153,55 @@ function prepareIwyuArgs(compileCmd: string, workspaceFolder: vscode.WorkspaceFo
 
 // --- Per-entry operations ---
 
+interface ProcessResult {
+	code: number;
+	output: string;
+	/** Set instead of `output` containing anything, when the process could not even be started. */
+	errorMessage?: string;
+}
+
+/**
+ * Spawns a process and collects its stdout+stderr into a single string,
+ * optionally echoing each chunk live to the output channel as it arrives.
+ * Adds no header/footer text of its own — callers compose that around the
+ * returned output.
+ */
+function spawnAndCollect(
+	command: string,
+	args: string[],
+	spawnOptions: { cwd: string, shell?: boolean, env?: NodeJS.ProcessEnv },
+	outputChannel: vscode.OutputChannel,
+	live: boolean,
+	errorLabel: string
+): Promise<ProcessResult> {
+	return new Promise((resolve) => {
+		const proc = spawn(command, args, {
+			cwd: spawnOptions.cwd,
+			shell: spawnOptions.shell ?? false,
+			env: spawnOptions.env
+		});
+		let output = '';
+
+		proc.stdout.on('data', (data) => {
+			const chunk = data.toString();
+			output += chunk;
+			if (live) outputChannel.append(chunk);
+		});
+		proc.stderr.on('data', (data) => {
+			const chunk = data.toString();
+			output += chunk;
+			if (live) outputChannel.append(chunk);
+		});
+
+		proc.on('close', (code) => resolve({ code: code ?? -1, output }));
+		proc.on('error', (err) => {
+			const errorMessage = `Could not start ${errorLabel}: ${err.message}`;
+			if (live) outputChannel.appendLine(`[Error] ${errorMessage}`);
+			resolve({ code: -1, output, errorMessage });
+		});
+	});
+}
+
 async function runIwyuDryRunOnEntry(
 	entry: CompileEntry,
 	workspaceFolder: vscode.WorkspaceFolder,
@@ -170,35 +219,19 @@ async function runIwyuDryRunOnEntry(
 		outputChannel.appendLine(`[Command] ${iwyuExe} ${iwyuArgs.join(' ')}`);
 	}
 
-	return new Promise((resolve) => {
-		const process = spawn(iwyuExe, iwyuArgs, {
-			cwd: entry.directory,
-			shell: false
-		});
+	const { code, output, errorMessage } = await spawnAndCollect(
+		iwyuExe, iwyuArgs, { cwd: entry.directory, shell: false }, outputChannel, live, 'IWYU'
+	);
 
-		process.stdout.on('data', (data) => {
-			const chunk = data.toString();
-			report += chunk;
-			if (live) outputChannel.append(chunk);
-		});
-		process.stderr.on('data', (data) => {
-			const chunk = data.toString();
-			report += chunk;
-			if (live) outputChannel.append(chunk);
-		});
+	report += output;
+	if (errorMessage) {
+		report += `\n[Error] ${errorMessage}`;
+	} else {
+		report += `\n[Finished] Exit code: ${code}`;
+		if (live) outputChannel.appendLine(`\n[Finished] Exit code: ${code}`);
+	}
 
-		process.on('error', (err) => {
-			report += `\n[Error] ${err.message}`;
-			if (live) outputChannel.appendLine(`[Error] ${err.message}`);
-			resolve({ code: -1, report });
-		});
-
-		process.on('close', (code) => {
-			report += `\n[Finished] Exit code: ${code}`;
-			if (live) outputChannel.appendLine(`\n[Finished] Exit code: ${code}`);
-			resolve({ code, report });
-		});
-	});
+	return { code, report };
 }
 
 type FixStatus = 'success' | 'no-suggestions' | 'failed';
@@ -223,28 +256,12 @@ async function runIwyuFixOnEntry(
 	}
 
 	// 1. Run IWYU
-	const iwyuReport = await new Promise<string>((resolve) => {
-		const iwyuProcess = spawn(iwyuExe, iwyuArgs, { cwd: entry.directory });
-		let out = '';
-
-		iwyuProcess.stdout.on('data', (data) => {
-			const chunk = data.toString();
-			out += chunk;
-			if (live) outputChannel.append(chunk);
-		});
-		iwyuProcess.stderr.on('data', (data) => {
-			const chunk = data.toString();
-			out += chunk;
-			if (live) outputChannel.append(chunk);
-		});
-
-		iwyuProcess.on('close', () => resolve(out));
-		iwyuProcess.on('error', (err) => {
-			log += `\n[Error] Could not start IWYU: ${err.message}`;
-			if (live) outputChannel.appendLine(`[Error] Could not start IWYU: ${err.message}`);
-			resolve('');
-		});
-	});
+	const { output: iwyuReport, errorMessage: iwyuErrorMessage } = await spawnAndCollect(
+		iwyuExe, iwyuArgs, { cwd: entry.directory }, outputChannel, live, 'IWYU'
+	);
+	if (iwyuErrorMessage) {
+		log += `\n[Error] ${iwyuErrorMessage}`;
+	}
 
 	log += iwyuReport;
 	if (live) outputChannel.appendLine(`\n--- IWYU Raw Report Finished ---`);
@@ -417,6 +434,34 @@ async function resolveActiveEntry(
 	return { editor, entry, workspaceFolder };
 }
 
+/**
+ * Resolves the target folder (prompting via `pickFolderIntegrated` if `uri`
+ * is unset), its workspace folder, and the compile database entries under
+ * it, showing the appropriate error/warning message and returning undefined
+ * if any step fails. Shared by the folder-batch commands.
+ */
+async function resolveFolderEntries(
+	uri: vscode.Uri | undefined,
+	db: CompilationDatabase
+): Promise<{ targetUri: vscode.Uri, workspaceFolder: vscode.WorkspaceFolder, entries: CompileEntry[] } | undefined> {
+	const targetUri = uri ?? await pickFolderIntegrated();
+	if (!targetUri) return undefined;
+
+	const workspaceFolder = vscode.workspace.getWorkspaceFolder(targetUri);
+	if (!workspaceFolder) {
+		vscode.window.showErrorMessage("Folder is not in a workspace folder.");
+		return undefined;
+	}
+
+	const entries = db.getAllEntriesInFolder(targetUri);
+	if (entries.length === 0) {
+		vscode.window.showWarningMessage("IWYU: No compile command found under this folder in compile_commands.json.");
+		return undefined;
+	}
+
+	return { targetUri, workspaceFolder, entries };
+}
+
 // --- Extension Activation ---
 
 export function activate(context: vscode.ExtensionContext) {
@@ -532,20 +577,9 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(disposableFixPreview);
 
 	const disposableDryRunFolder = vscode.commands.registerCommand('include-what-you-use-iwyu.dry_run_folder', async (uri?: vscode.Uri) => {
-		const targetUri = uri ?? await pickFolderIntegrated();
-		if (!targetUri) return;
-
-		const workspaceFolder = vscode.workspace.getWorkspaceFolder(targetUri);
-		if (!workspaceFolder) {
-			vscode.window.showErrorMessage("Folder is not in a workspace folder.");
-			return;
-		}
-
-		const entries = db.getAllEntriesInFolder(targetUri);
-		if (entries.length === 0) {
-			vscode.window.showWarningMessage("IWYU: No compile command found under this folder in compile_commands.json.");
-			return;
-		}
+		const resolved = await resolveFolderEntries(uri, db);
+		if (!resolved) return;
+		const { targetUri, workspaceFolder, entries } = resolved;
 
 		outputChannel.clear();
 		outputChannel.show(true);
@@ -575,20 +609,9 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(disposableDryRunFolder);
 
 	const disposableFixFolder = vscode.commands.registerCommand('include-what-you-use-iwyu.fix_folder', async (uri?: vscode.Uri) => {
-		const targetUri = uri ?? await pickFolderIntegrated();
-		if (!targetUri) return;
-
-		const workspaceFolder = vscode.workspace.getWorkspaceFolder(targetUri);
-		if (!workspaceFolder) {
-			vscode.window.showErrorMessage("Folder is not in a workspace folder.");
-			return;
-		}
-
-		const entries = db.getAllEntriesInFolder(targetUri);
-		if (entries.length === 0) {
-			vscode.window.showWarningMessage("IWYU: No compile command found under this folder in compile_commands.json.");
-			return;
-		}
+		const resolved = await resolveFolderEntries(uri, db);
+		if (!resolved) return;
+		const { targetUri, workspaceFolder, entries } = resolved;
 
 		outputChannel.clear();
 		outputChannel.show(true);
