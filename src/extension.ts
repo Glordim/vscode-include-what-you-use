@@ -222,7 +222,7 @@ async function runIwyuFixOnEntry(
 		outputChannel.appendLine(`[Command] ${iwyuExe} ${iwyuArgs.join(' ')}`);
 	}
 
-	// 1. Lancer IWYU
+	// 1. Run IWYU
 	const iwyuReport = await new Promise<string>((resolve) => {
 		const iwyuProcess = spawn(iwyuExe, iwyuArgs, { cwd: entry.directory });
 		let out = '';
@@ -258,7 +258,7 @@ async function runIwyuFixOnEntry(
 	const config = vscode.workspace.getConfiguration('iwyu');
 	const additionalArgs = config.get<string[]>('fixIncludes.additionalArgs') || [];
 
-	// 2. Préparer fix_includes.py
+	// 2. Prepare fix_includes.py
 	const pythonArgs = [
 		fixIncludesPy,
 		...additionalArgs
@@ -291,7 +291,7 @@ async function runIwyuFixOnEntry(
 			env: fixEnv
 		});
 
-		// Envoyer le rapport IWYU au script Python via STDIN
+		// Send the IWYU report to the Python script via STDIN
 		fixProcess.stdin.write(iwyuReport);
 		fixProcess.stdin.end();
 
@@ -391,7 +391,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(outputChannel, db);
 
-	let disposable = vscode.commands.registerCommand('include-what-you-use-iwyu.dry_run', async () => {
+	const disposable = vscode.commands.registerCommand('include-what-you-use-iwyu.dry_run', async () => {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) return;
 
@@ -425,7 +425,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(disposable);
 
-	let disposableFix = vscode.commands.registerCommand('include-what-you-use-iwyu.fix', async () => {
+	const disposableFix = vscode.commands.registerCommand('include-what-you-use-iwyu.fix', async () => {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) return;
 
@@ -451,7 +451,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		if (result.status === 'success') {
 			vscode.window.showInformationMessage("IWYU: Fix applied! Reverting file to load changes...");
-			// Optionnel : Recharger le fichier pour voir les changements immédiatement
+			// Reload the file to show the changes immediately
 			vscode.commands.executeCommand('workbench.action.files.revert');
 		} else if (result.status === 'failed') {
 			vscode.window.showErrorMessage(`fix_includes.py failed. Check the Output channel.`);
@@ -460,7 +460,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(disposableFix);
 
-	let disposableFixPreview = vscode.commands.registerCommand('include-what-you-use-iwyu.fix_preview', async () => {
+	const disposableFixPreview = vscode.commands.registerCommand('include-what-you-use-iwyu.fix_preview', async () => {
 		const editor = vscode.window.activeTextEditor;
 		if (!editor) return;
 
@@ -542,7 +542,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(disposableFixPreview);
 
-	let disposableDryRunFolder = vscode.commands.registerCommand('include-what-you-use-iwyu.dry_run_folder', async (uri?: vscode.Uri) => {
+	const disposableDryRunFolder = vscode.commands.registerCommand('include-what-you-use-iwyu.dry_run_folder', async (uri?: vscode.Uri) => {
 		const targetUri = uri ?? await pickFolderIntegrated();
 		if (!targetUri) return;
 
@@ -585,7 +585,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(disposableDryRunFolder);
 
-	let disposableFixFolder = vscode.commands.registerCommand('include-what-you-use-iwyu.fix_folder', async (uri?: vscode.Uri) => {
+	const disposableFixFolder = vscode.commands.registerCommand('include-what-you-use-iwyu.fix_folder', async (uri?: vscode.Uri) => {
 		const targetUri = uri ?? await pickFolderIntegrated();
 		if (!targetUri) return;
 
